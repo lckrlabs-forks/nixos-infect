@@ -543,7 +543,7 @@ infect() {
   fi
 
   rm -rf /boot.bak
-  is_EFI && umount "$esp"
+  is_EFI && umount --quiet "$esp"
 
   # shellcheck disable=SC2115
   mv -v /boot /boot.bak || { cp -a /boot /boot.bak ; rm -rf /boot/* ; umount /boot ; }
