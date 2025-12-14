@@ -299,7 +299,7 @@ ensureBootSize() {
 
   # Use sfdisk to resize the partition non-interactively
   echo "Recreating partition ${part_num} with ${MIN_BOOT_SIZE_MB}MB size..."
-  echo "${part_start},${MIN_BOOT_SIZE_MB}M,U,*" | sfdisk --force "$disk_dev" -N "$part_num"
+  echo "${part_start},${MIN_BOOT_SIZE_MB}M,U,*" | sfdisk --no-reread --force "$disk_dev" -N "$part_num"
 
   # Wait for device to be ready
   sleep 2
