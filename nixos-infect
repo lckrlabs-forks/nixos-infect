@@ -503,8 +503,17 @@ infect() {
     # Extract partition number and disk from device
     local part_num
     local disk_dev
+    local kname
 
-    part_num="$(lsblk -no PARTNUM "$esp_dev_real")"
+    kname="$(basename "$(readlink -f "$esp_dev_real")")"
+
+    if [[ -r "/sys/class/block/$kname/partition" ]]; then
+      part_num="$(cat "/sys/class/block/$kname/partition")"
+    else
+      log "ERROR: $esp_dev_real is not a partition device"
+      return 1
+    fi
+
     disk_dev="/dev/$(lsblk -no PKNAME "$esp_dev_real")"
 
     if [[ -z "$part_num" || -z "$disk_dev" ]]; then
@@ -513,6 +522,11 @@ infect() {
     fi
 
     log "Disk: $disk_dev, Partition: $part_num"
+
+    if [[ ! -b "$disk_dev" ]]; then
+      log "ERROR: $disk_dev is not a block device"
+      return 1
+    fi
 
     # Get partition start sector (handle both single and double-digit partition numbers)
     local part_start
