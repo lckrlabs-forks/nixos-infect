@@ -288,7 +288,6 @@ ensureBootSize() {
     echo "ERROR: Could not determine partition start sector"
     echo "parted output:"
     parted -s "$disk_dev" unit s print
-    [[ -n "$boot_backup" ]] && mount "$esp_dev_real" /boot
     return 1
   fi
 
@@ -310,17 +309,6 @@ ensureBootSize() {
   echo "Formatting new boot partition..."
   mkfs.vfat -F32 "$esp_dev_real"
 
-  # Mount the new partition
-  mount "$esp_dev_real" /boot
-
-  # Restore boot contents if we backed them up
-  if [[ -n "$boot_backup" ]]; then
-    echo "Restoring boot partition contents..."
-    cp -a "$boot_backup"/* /boot/ || true
-    # Clean up backup
-    rm -rf "$boot_backup"
-  fi
-
   echo "Boot partition successfully resized to ${MIN_BOOT_SIZE_MB}MB"
   return 0
 }
@@ -329,7 +317,6 @@ prepareEnv() {
   # $esp and $grubdev are used in makeConf()
   if isEFI; then
     esp="$(findESP)"
-    ensureBootSize "$esp"
   else
     for grubdev in /dev/vda /dev/sda /dev/xvda /dev/nvme0n1 ; do [[ -e $grubdev ]] && break; done
   fi
@@ -475,6 +462,8 @@ infect() {
 
   mv -v /boot /boot.bak || { cp -a /boot /boot.bak ; rm -rf /boot/* ; umount /boot ; }
   if isEFI; then
+    # Resize boot partition now that it's unmounted and safe
+    resizeBootPartition "$esp"
     mkdir -p /boot
     mount "$esp" /boot
     find /boot -depth ! -path /boot -exec rm -rf {} +
