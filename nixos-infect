@@ -64,14 +64,24 @@ find_ESP() {
   esp=""
   for d in /boot/EFI /boot/efi /boot; do
     [[ ! -d "$d" ]] && continue
-    [[ "$d" == "$(df "$d" --output=target | sed 1d)" ]] \
-      && esp="$(df "$d" --output=source | sed 1d)" \
-      && break
+    mountpoint -q "$d" || continue
+    esp="$(df "$d" --output=source | sed 1d)"
+    [[ -n "$esp" ]] && break
   done
-  [[ -z "$esp" ]] && { echo "ERROR: No ESP mount point found"; return 1; }
-  for uuid in /dev/disk/by-uuid/*; do
-    [[ $(readlink -f "$uuid") == "$esp" ]] && echo "$uuid" && return 0
-  done
+
+  # Try to detect unmounted EFI partition
+  if [[ -z "$esp" ]]; then
+    for dev in /dev/disk/by-label/*; do
+      if [[ "$(basename "$dev")" == "EFI"* ]]; then
+        esp="$(readlink -f "$dev")"
+        log "WARNING: Found unmounted ESP at $esp"
+        break
+      fi
+    done
+  fi
+
+  [[ -z "$esp" ]] && { echo "ERROR: No ESP device found"; return 1; }
+  echo "$esp"
 }
 
 is_x86_64() {
@@ -296,10 +306,12 @@ prepare_environment() {
 
   # $esp and $grubdev are used in makeConf()
   if is_EFI; then
-    esp="$(find_ESP)"
-    log "Found ESP at: $esp"
+    esp="$(find_ESP)" || { log "Cannot continue: EFI system but no ESP found"; exit 1; }
+    log "Found ESP: $esp"
   else
-    for grubdev in /dev/vda /dev/sda /dev/xvda /dev/nvme0n1 ; do [[ -e $grubdev ]] && break; done
+    for grubdev in /dev/vda /dev/sda /dev/xvda /dev/nvme0n1; do
+      [[ -e $grubdev ]] && break
+    done
     log "Using GRUB device: $grubdev"
   fi
 
