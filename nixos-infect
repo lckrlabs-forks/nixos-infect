@@ -529,6 +529,7 @@ infect() {
   rm -rf /boot.bak
   is_EFI && umount "$esp"
 
+  # shellcheck disable=SC2115
   mv -v /boot /boot.bak || { cp -a /boot /boot.bak ; rm -rf /boot/* ; umount /boot ; }
   if is_EFI; then
     # Resize boot partition now that it's unmounted and safe
