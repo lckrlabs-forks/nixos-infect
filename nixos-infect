@@ -72,7 +72,7 @@ find_ESP() {
   # Try to detect unmounted EFI partition
   if [[ -z "$esp" ]]; then
     for dev in /dev/disk/by-label/*; do
-      if [[ "$(basename "$dev")" == "EFI"* ]]; then
+      if [[ "$(basename "$dev")" == *"EFI"* ]]; then
         esp="$(readlink -f "$dev")"
         log "WARNING: Found unmounted ESP at $esp"
         break
