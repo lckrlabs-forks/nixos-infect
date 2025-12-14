@@ -56,6 +56,28 @@ enable_provider_specific_tweaks() {
   fi
 }
 
+is_EFI() {
+  [ -d /sys/firmware/efi ]
+}
+
+find_ESP() {
+  esp=""
+  for d in /boot/EFI /boot/efi /boot; do
+    [[ ! -d "$d" ]] && continue
+    [[ "$d" == "$(df "$d" --output=target | sed 1d)" ]] \
+      && esp="$(df "$d" --output=source | sed 1d)" \
+      && break
+  done
+  [[ -z "$esp" ]] && { echo "ERROR: No ESP mount point found"; return 1; }
+  for uuid in /dev/disk/by-uuid/*; do
+    [[ $(readlink -f "$uuid") == "$esp" ]] && echo "$uuid" && return 0
+  done
+}
+
+is_x86_64() {
+  [[ "$(uname -m)" == "x86_64" ]]
+}
+
 make_nixos_conf() {
   # Generate detailed network configuration if needed
   make_detailed_networking_conf() {
@@ -186,7 +208,7 @@ EOF
 }
 EOF
 
-  if isEFI; then
+  if is_EFI; then
     bootcfg=$(cat << EOF
   boot.loader.grub = {
     efiSupport = true;
@@ -204,7 +226,7 @@ EOF
   fi
 
   availableKernelModules=('"ata_piix"' '"uhci_hcd"' '"xen_blkfront"')
-  if isX86_64; then
+  if is_x86_64; then
     availableKernelModules+=('"vmw_pvscsi"')
   fi
 
@@ -270,24 +292,6 @@ remove_swap() {
 }
 
 prepare_environment() {
-  is_EFI() {
-    [ -d /sys/firmware/efi ]
-  }
-
-  find_ESP() {
-    esp=""
-    for d in /boot/EFI /boot/efi /boot; do
-      [[ ! -d "$d" ]] && continue
-      [[ "$d" == "$(df "$d" --output=target | sed 1d)" ]] \
-        && esp="$(df "$d" --output=source | sed 1d)" \
-        && break
-    done
-    [[ -z "$esp" ]] && { echo "ERROR: No ESP mount point found"; return 1; }
-    for uuid in /dev/disk/by-uuid/*; do
-      [[ $(readlink -f "$uuid") == "$esp" ]] && echo "$uuid" && return 0
-    done
-  }
-
   log "Preparing environment..."
 
   # $esp and $grubdev are used in makeConf()
