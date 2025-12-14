@@ -294,11 +294,12 @@ ensureBootSize() {
 
   echo "Partition starts at sector: $part_start"
 
-  # Delete and recreate the partition with new size
+  # Calculate end sector for 1GB partition
+  local end_sector=$((part_start + MIN_BOOT_SIZE_MB * 2048 - 1))
+
+  # Use sfdisk to resize the partition non-interactively
   echo "Recreating partition ${part_num} with ${MIN_BOOT_SIZE_MB}MB size..."
-  parted -s "$disk_dev" ---pretend-input-tty rm "$part_num" <<< "Yes"
-  parted -s "$disk_dev" mkpart primary fat32 "${part_start}s" "$((part_start + MIN_BOOT_SIZE_MB * 2048))s"
-  parted -s "$disk_dev" set "$part_num" esp on
+  echo "${part_start},${MIN_BOOT_SIZE_MB}M,U,*" | sfdisk --force "$disk_dev" -N "$part_num"
 
   # Wait for device to be ready
   sleep 2
