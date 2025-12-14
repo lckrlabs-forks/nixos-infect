@@ -296,7 +296,7 @@ ensureBootSize() {
 
   # Delete and recreate the partition with new size
   echo "Recreating partition ${part_num} with ${MIN_BOOT_SIZE_MB}MB size..."
-  parted -s "$disk_dev" rm "$part_num"
+  parted -s "$disk_dev" ---pretend-input-tty rm "$part_num" <<< "Yes"
   parted -s "$disk_dev" mkpart primary fat32 "${part_start}s" "$((part_start + MIN_BOOT_SIZE_MB * 2048))s"
   parted -s "$disk_dev" set "$part_num" esp on
 
