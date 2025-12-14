@@ -404,8 +404,24 @@ fakeCurlUsingWget() {
     }; export -f curl; }
 }
 
-req() {
+request_package() {
   type "$1" > /dev/null 2>&1 || which "$1" > /dev/null 2>&1
+}
+
+# Return a list of packages that are missing
+get_missing_packages() {
+  local -n missing_packages=$1             # use nameref for indirection
+
+  # Get list of missing packages
+  if ! request_package curl; then missing_packages+=("curl"); fi
+  if ! request_package bzcat; then missing_packages+=("bzcat"); fi
+  if ! request_package xzcat; then missing_packages+=("xzcat"); fi
+  if ! request_package groupadd; then missing_packages+=("groupadd"); fi
+  if ! request_package useradd; then missing_packages+=("useradd"); fi
+  if ! request_package ip; then missing_packages+=("ip"); fi
+  if ! request_package awk; then missing_packages+=("awk"); fi
+  if ! request_package cut || ! request_package df; then missing_packages+=("coreutils"); fi
+  if ! request_package parted; then missing_packages+=("parted"); fi
 }
 
 checkEnv() {
@@ -413,31 +429,26 @@ checkEnv() {
 
   [[ "$(whoami)" == "root" ]] || { log "ERROR: Must run as root"; return 1; }
 
-  # Perform some easy fixups before checking
-  # TODO prevent multiple calls to apt-get update
-  (which dnf && dnf install -y perl-Digest-SHA) >/dev/null 2>&1 || true # Fedora 24
-  which bzcat >/dev/null 2>&1 || (which yum && yum install -y bzip2) \
-              || (which apt-get && apt-get update && apt-get install -y bzip2) \
-              || true
-  which xzcat >/dev/null 2>&1 || (which yum && yum install -y xz-utils) \
-              || (which apt-get && apt-get update && apt-get install -y xz-utils) \
-              || true
-  which curl >/dev/null 2>&1  || fakeCurlUsingWget \
-              || (which apt-get && apt-get update && apt-get install -y curl) \
-              || true
-  which parted >/dev/null 2>&1 || (which yum && yum install -y parted) \
-              || (which apt-get && apt-get update && apt-get install -y parted) \
-              || true
+  # Install missing packages if any
+  local pkgs_to_install
+  get_missing_packages pkgs_to_install
+  if [[ -n "$pkgs_to_install" ]]; then
+    if which apt-get; then
+      apt-get update
+      apt-get install -y "$pkgs_to_install"
+    elif which yum; then
+      yum install -y "$pkgs_to_install"
+    fi
 
-  req curl || req wget || { log "ERROR: Missing both curl and wget";  return 1; }
-  req bzcat            || { log "ERROR: Missing bzcat";               return 1; }
-  req xzcat            || { log "ERROR: Missing xzcat";               return 1; }
-  req groupadd         || { log "ERROR: Missing groupadd";            return 1; }
-  req useradd          || { log "ERROR: Missing useradd";             return 1; }
-  req ip               || { log "ERROR: Missing ip";                  return 1; }
-  req awk              || { log "ERROR: Missing awk";                 return 1; }
-  req cut || req df    || { log "ERROR: Missing coreutils (cut, df)"; return 1; }
-  req parted           || { log "ERROR: Missing parted";              return 1; }
+    # Check if any packages were still missing after installation
+    local pkgs_still_missing
+    get_missing_packages pkgs_still_missing
+    if [[ -n "$pkgs_still_missing" ]]; then
+      log "ERROR: Dependencies still missing after installation"
+      log "Missing packages: " "${pkgs_still_missing[@]}"
+      return 1
+    fi
+  fi
 
   # On some versions of Oracle Linux these have the wrong permissions,
   # which stops sshd from starting when NixOS boots
