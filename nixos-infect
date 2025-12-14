@@ -232,10 +232,94 @@ findESP() {
   done
 }
 
+ensureBootSize() {
+  if ! isEFI; then
+    echo "Not an EFI system, skipping boot partition size check"
+    return 0
+  fi
+
+  local esp_dev="$1"
+  local esp_dev_real=$(readlink -f "$esp_dev")
+  local MIN_BOOT_SIZE_MB=1024
+
+  # Get current boot partition size in MB
+  local current_size_kb=$(lsblk -bno SIZE "$esp_dev_real" | head -1)
+  local current_size_mb=$((current_size_kb / 1024 / 1024))
+
+  echo "Current boot partition size: ${current_size_mb}MB"
+
+  if [[ $current_size_mb -ge $MIN_BOOT_SIZE_MB ]]; then
+    echo "Boot partition size is adequate (${current_size_mb}MB >= ${MIN_BOOT_SIZE_MB}MB)"
+    return 0
+  fi
+
+  echo "Boot partition is too small (${current_size_mb}MB < ${MIN_BOOT_SIZE_MB}MB), resizing..."
+
+  # Back up boot partition contents
+  local boot_backup="/tmp/boot-backup-$$"
+  mkdir -p "$boot_backup"
+  echo "Backing up boot partition to $boot_backup"
+  cp -a /boot/* "$boot_backup/" || true
+
+  # Unmount the boot partition
+  umount /boot || { echo "ERROR: Failed to unmount /boot"; return 1; }
+
+  # Extract partition number and disk from device
+  local part_num=$(echo "$esp_dev_real" | grep -o '[0-9]*$')
+  local disk_dev=$(echo "$esp_dev_real" | sed 's/[0-9]*$//')
+
+  # Handle nvme device names (e.g., /dev/nvme0n1p1)
+  if [[ "$disk_dev" =~ nvme ]]; then
+    disk_dev=$(echo "$esp_dev_real" | sed 's/p[0-9]*$//')
+  fi
+
+  echo "Disk: $disk_dev, Partition: $part_num"
+
+  # Get partition start sector
+  local part_start=$(parted -s "$disk_dev" unit s print | grep "^ $part_num " | awk '{print $2}' | sed 's/s$//')
+
+  if [[ -z "$part_start" ]]; then
+    echo "ERROR: Could not determine partition start sector"
+    mount "$esp_dev_real" /boot
+    return 1
+  fi
+
+  echo "Partition starts at sector: $part_start"
+
+  # Delete and recreate the partition with new size
+  echo "Recreating partition ${part_num} with ${MIN_BOOT_SIZE_MB}MB size..."
+  parted -s "$disk_dev" rm "$part_num"
+  parted -s "$disk_dev" mkpart primary fat32 "${part_start}s" "$((part_start + MIN_BOOT_SIZE_MB * 2048))s"
+  parted -s "$disk_dev" set "$part_num" esp on
+
+  # Wait for device to be ready
+  sleep 2
+  partprobe "$disk_dev" || true
+  sleep 2
+
+  # Format the new partition
+  echo "Formatting new boot partition..."
+  mkfs.vfat -F32 "$esp_dev_real"
+
+  # Mount the new partition
+  mount "$esp_dev_real" /boot
+
+  # Restore boot contents
+  echo "Restoring boot partition contents..."
+  cp -a "$boot_backup"/* /boot/ || true
+
+  # Clean up backup
+  rm -rf "$boot_backup"
+
+  echo "Boot partition successfully resized to ${MIN_BOOT_SIZE_MB}MB"
+  return 0
+}
+
 prepareEnv() {
   # $esp and $grubdev are used in makeConf()
   if isEFI; then
     esp="$(findESP)"
+    ensureBootSize "$esp"
   else
     for grubdev in /dev/vda /dev/sda /dev/xvda /dev/nvme0n1 ; do [[ -e $grubdev ]] && break; done
   fi
@@ -302,6 +386,9 @@ checkEnv() {
   which curl  || fakeCurlUsingWget \
               || (which apt-get && apt-get update && apt-get install -y curl) \
               || true
+  which parted || (which yum && yum install -y parted) \
+              || (which apt-get && apt-get update && apt-get install -y parted) \
+              || true
 
   req curl || req wget || { echo "ERROR: Missing both curl and wget";  return 1; }
   req bzcat            || { echo "ERROR: Missing bzcat";               return 1; }
@@ -311,6 +398,7 @@ checkEnv() {
   req ip               || { echo "ERROR: Missing ip";                  return 1; }
   req awk              || { echo "ERROR: Missing awk";                 return 1; }
   req cut || req df    || { echo "ERROR: Missing coreutils (cut, df)"; return 1; }
+  req parted           || { echo "ERROR: Missing parted";              return 1; }
 
   # On some versions of Oracle Linux these have the wrong permissions,
   # which stops sshd from starting when NixOS boots
