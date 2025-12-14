@@ -542,13 +542,23 @@ infect() {
     (cd / && ls etc/ssh/ssh_host_*_key*) >> /etc/NIXOS_LUSTRATE
   fi
 
-  rm -rf /boot.bak
   if is_EFI; then
-    umount "$esp" || true
+      umount --quiet "$esp" || true
   fi
 
-  # shellcheck disable=SC2115
-  mv -v /boot /boot.bak || { cp -a /boot /boot.bak ; rm -rf /boot/* ; umount /boot ; }
+  # Safely move or copy boot contents
+  if [[ -d /boot ]]; then
+      # TODO do we need this rm command?
+      rm -rf /boot.bak
+      if ! mv -v /boot /boot.bak 2>/dev/null; then
+          cp -a /boot /boot.bak 2>/dev/null || true
+          rm -rf /boot/* 2>/dev/null
+          umount /boot 2>/dev/null || true
+      fi
+  else
+      log "WARNING: /boot does not exist, skipping backup"
+  fi
+
   if is_EFI; then
     # Resize boot partition now that it's unmounted and safe
     resize_boot_partition "$esp"
