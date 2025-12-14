@@ -255,14 +255,20 @@ ensureBootSize() {
 
   echo "Boot partition is too small (${current_size_mb}MB < ${MIN_BOOT_SIZE_MB}MB), resizing..."
 
-  # Back up boot partition contents
-  local boot_backup="/tmp/boot-backup-$$"
-  mkdir -p "$boot_backup"
-  echo "Backing up boot partition to $boot_backup"
-  cp -a /boot/* "$boot_backup/" || true
+  # Check if /boot is actually mounted
+  if mountpoint -q /boot; then
+    # Back up boot partition contents
+    local boot_backup="/tmp/boot-backup-$"
+    mkdir -p "$boot_backup"
+    echo "Backing up boot partition to $boot_backup"
+    cp -a /boot/* "$boot_backup/" || true
 
-  # Unmount the boot partition
-  umount /boot || { echo "ERROR: Failed to unmount /boot"; return 1; }
+    # Unmount the boot partition
+    umount /boot || { echo "ERROR: Failed to unmount /boot"; return 1; }
+  else
+    echo "/boot is not mounted, will proceed without backup"
+    boot_backup=""
+  fi
 
   # Extract partition number and disk from device
   local part_num=$(echo "$esp_dev_real" | grep -o '[0-9]*$')
@@ -304,12 +310,13 @@ ensureBootSize() {
   # Mount the new partition
   mount "$esp_dev_real" /boot
 
-  # Restore boot contents
-  echo "Restoring boot partition contents..."
-  cp -a "$boot_backup"/* /boot/ || true
-
-  # Clean up backup
-  rm -rf "$boot_backup"
+  # Restore boot contents if we backed them up
+  if [[ -n "$boot_backup" ]]; then
+    echo "Restoring boot partition contents..."
+    cp -a "$boot_backup"/* /boot/ || true
+    # Clean up backup
+    rm -rf "$boot_backup"
+  fi
 
   echo "Boot partition successfully resized to ${MIN_BOOT_SIZE_MB}MB"
   return 0
