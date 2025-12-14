@@ -232,7 +232,7 @@ findESP() {
   done
 }
 
-ensureBootSize() {
+resizeBootPartition() {
   if ! isEFI; then
     echo "Not an EFI system, skipping boot partition size check"
     return 0
