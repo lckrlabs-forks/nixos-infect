@@ -281,12 +281,14 @@ ensureBootSize() {
 
   echo "Disk: $disk_dev, Partition: $part_num"
 
-  # Get partition start sector
-  local part_start=$(parted -s "$disk_dev" unit s print | grep "^ $part_num " | awk '{print $2}' | sed 's/s$//')
+  # Get partition start sector (handle both single and double-digit partition numbers)
+  local part_start=$(parted -s "$disk_dev" unit s print | grep "^[[:space:]]*${part_num}[[:space:]]" | awk '{print $2}' | sed 's/s$//')
 
   if [[ -z "$part_start" ]]; then
     echo "ERROR: Could not determine partition start sector"
-    mount "$esp_dev_real" /boot
+    echo "parted output:"
+    parted -s "$disk_dev" unit s print
+    [[ -n "$boot_backup" ]] && mount "$esp_dev_real" /boot
     return 1
   fi
 
