@@ -503,12 +503,13 @@ infect() {
     # Extract partition number and disk from device
     local part_num
     local disk_dev
-    part_num=$(echo "$esp_dev_real" | grep -o '[0-9]*$')
-    disk_dev="${esp_dev_real//[0-9]*$/}"
 
-    # Handle nvme device names (e.g., /dev/nvme0n1p1)
-    if [[ "$disk_dev" =~ nvme ]]; then
-      disk_dev="${esp_dev_real//[0-9]*$/}"
+    part_num="$(lsblk -no PARTNUM "$esp_dev_real")"
+    disk_dev="/dev/$(lsblk -no PKNAME "$esp_dev_real")"
+
+    if [[ -z "$part_num" || -z "$disk_dev" ]]; then
+      log "ERROR: Failed to determine disk or partition number for $esp_dev_real"
+      return 1
     fi
 
     log "Disk: $disk_dev, Partition: $part_num"
