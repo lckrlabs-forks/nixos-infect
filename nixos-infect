@@ -344,7 +344,7 @@ check_environment() {
 
     # Get list of missing packages
     if ! request_package curl; then missing_packages+=("curl"); fi
-    if ! request_package bzcat; then missing_packages+=("bzcat"); fi
+    if ! request_package bzcat; then missing_packages+=("bzip2"); fi
     if ! request_package xzcat; then missing_packages+=("xzcat"); fi
     if ! request_package groupadd; then missing_packages+=("groupadd"); fi
     if ! request_package useradd; then missing_packages+=("useradd"); fi
