@@ -4,9 +4,37 @@
 
 set -e -o pipefail
 
+STATE_FILE="/tmp/nixos-infect.state"
+
 log() {
   echo "[nixos-infect] $*" >&2
 }
+
+checkPreviousRun() {
+  if [[ -e "$STATE_FILE" ]]; then
+    log "WARNING: Found state file from previous run at $STATE_FILE"
+    log "Previous run may have failed or been interrupted."
+
+    if [[ -e /etc/nixos/configuration.nix ]]; then
+      log "Configuration files exist from previous run."
+      log "To restart cleanly, run: rm -rf /etc/nixos/ $STATE_FILE"
+      log "Or set FORCE_CONTINUE=1 to attempt to continue from where we left off."
+
+      if [[ -z "$FORCE_CONTINUE" ]]; then
+        log "Exiting to prevent potential issues. Set FORCE_CONTINUE=1 to override."
+        exit 1
+      else
+        log "FORCE_CONTINUE set, attempting to continue..."
+      fi
+    fi
+  fi
+}
+
+markState() {
+  echo "$1" > "$STATE_FILE"
+  log "State: $1"
+}
+
 autodetectProvider() {
   if [ -e /etc/hetzner-build ]; then
     PROVIDER="hetznercloud"
@@ -427,15 +455,17 @@ infect() {
   for i in {1..10}; do
     useradd -c "Nix build user $i" -d /var/empty -g nixbld -G nixbld -M -N -r -s "$(which nologin)" "nixbld$i" 2>/dev/null || true
   done
-  # TODO use addgroup and adduser as fallbacks
-  #addgroup nixbld -g 30000 || true
-  #for i in {1..10}; do adduser -DH -G nixbld nixbld$i || true; done
+
+  markState "installing_nix"
+
   NIX_INSTALL_URL="${NIX_INSTALL_URL:-https://nixos.org/nix/install}"
   log "Installing Nix from $NIX_INSTALL_URL"
   curl -L "${NIX_INSTALL_URL}" | sh -s -- --no-channel-add
 
   # shellcheck disable=SC1090
   source ~/.nix-profile/etc/profile.d/nix.sh
+
+  markState "configuring_channels"
 
   [[ -z "$NIX_CHANNEL" ]] && NIX_CHANNEL="nixos-25.11"
   log "Setting up NixOS channel: $NIX_CHANNEL"
@@ -450,6 +480,8 @@ infect() {
   fi
 
   export NIXOS_CONFIG="${NIXOS_CONFIG:-/etc/nixos/configuration.nix}"
+
+  markState "building_system"
 
   log "Building NixOS system profile..."
   nix-env --set \
@@ -470,6 +502,8 @@ infect() {
     log "Setting label of $rootfsdev to $newrootfslabel"
     e2label "$rootfsdev" "$newrootfslabel"
   fi
+
+  markState "staging_boot"
 
   # Stage the Nix coup d'état
   log "Staging NixOS takeover..."
@@ -513,6 +547,7 @@ if [[ "$PROVIDER" = "digitalocean" ]] || [[ "$PROVIDER" = "servarica" ]] || [[ "
 	doNetConf=y
 fi
 
+checkPreviousRun
 checkEnv
 prepareEnv
 checkExistingSwap
