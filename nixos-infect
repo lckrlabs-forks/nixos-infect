@@ -51,6 +51,7 @@ makeConf() {
     trimmed_line=$(echo -n "$line" | xargs)
     echo -n "''$trimmed_line'' "
   done <<< "$keys")];
+  nix.settings.experimental-features = [ "nix-command" "flakes" ];
   system.stateVersion = "23.11";
 }
 EOF
@@ -100,6 +101,7 @@ makeLightsailConf() {
 {
   imports = [ "\${modulesPath}/virtualisation/amazon-image.nix" ];
   boot.loader.grub.device = lib.mkForce "/dev/nvme0n1";
+  nix.settings.experimental-features = [ "nix-command" "flakes" ];
 }
 EOF
 }
