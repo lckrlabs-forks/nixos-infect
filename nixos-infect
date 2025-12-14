@@ -157,7 +157,7 @@ EOF
   for trypath in /root/.ssh/authorized_keys /home/$SUDO_USER/.ssh/authorized_keys $HOME/.ssh/authorized_keys; do
       [[ -r "$trypath" ]] \
       && keys=$(sed -E 's/^[^#].*[[:space:]]((sk-ssh|sk-ecdsa|ssh|ecdsa)-[^[:space:]]+)[[:space:]]+([^[:space:]]+)([[:space:]]*.*)$/\1 \3\4/' "$trypath") \
-      && [[ ! -z "$keys" ]] \
+      && [[ -n "$keys" ]] \
       && break
   done
   local network_import=""
@@ -284,7 +284,7 @@ prepare_environment() {
     done
     [[ -z "$esp" ]] && { echo "ERROR: No ESP mount point found"; return 1; }
     for uuid in /dev/disk/by-uuid/*; do
-      [[ $(readlink -f "$uuid") == "$esp" ]] && echo $uuid && return 0
+      [[ $(readlink -f "$uuid") == "$esp" ]] && echo "$uuid" && return 0
     done
   }
 
@@ -302,7 +302,7 @@ prepare_environment() {
   # Retrieve root fs block device
   #                   (get root mount)  (get partition or logical volume)
   rootfsdev=$(mount | grep "on / type" | awk '{print $1;}')
-  rootfstype=$(df $rootfsdev --output=fstype | sed 1d)
+  rootfstype=$(df "$rootfsdev" --output=fstype | sed 1d)
   log "Root filesystem: $rootfsdev ($rootfstype)"
 
   # DigitalOcean doesn't seem to set USER while running user data
@@ -379,12 +379,15 @@ infect() {
     fi
 
     local esp_dev="$1"
-    local esp_dev_real=$(readlink -f "$esp_dev")
+    local esp_dev_real
     local MIN_BOOT_SIZE_MB=1024
+    esp_dev_real=$(readlink -f "$esp_dev")
 
     # Get current boot partition size in MB
-    local current_size_kb=$(lsblk -bno SIZE "$esp_dev_real" | head -1)
-    local current_size_mb=$((current_size_kb / 1024 / 1024))
+    local current_size_kb
+    local current_size_mb
+    current_size_kb=$(lsblk -bno SIZE "$esp_dev_real" | head -1)
+    current_size_mb=$((current_size_kb / 1024 / 1024))
 
     log "Current boot partition size: ${current_size_mb}MB"
 
@@ -411,18 +414,21 @@ infect() {
     fi
 
     # Extract partition number and disk from device
-    local part_num=$(echo "$esp_dev_real" | grep -o '[0-9]*$')
-    local disk_dev=$(echo "$esp_dev_real" | sed 's/[0-9]*$//')
+    local part_num
+    local disk_dev
+    part_num=$(echo "$esp_dev_real" | grep -o '[0-9]*$')
+    disk_dev="${esp_dev_real//[0-9]*$/}"
 
     # Handle nvme device names (e.g., /dev/nvme0n1p1)
     if [[ "$disk_dev" =~ nvme ]]; then
-      disk_dev=$(echo "$esp_dev_real" | sed 's/p[0-9]*$//')
+      disk_dev="${esp_dev_real//[0-9]*$/}"
     fi
 
     log "Disk: $disk_dev, Partition: $part_num"
 
     # Get partition start sector (handle both single and double-digit partition numbers)
-    local part_start=$(parted -s "$disk_dev" unit s print | grep "^[[:space:]]*${part_num}[[:space:]]" | awk '{print $2}' | sed 's/s$//')
+    local part_start
+    part_start=$(parted -s "$disk_dev" unit s print | grep "^[[:space:]]*${part_num}[[:space:]]" | awk '{print $2}' | sed 's/s$//')
 
     if [[ -z "$part_start" ]]; then
       log "ERROR: Could not determine partition start sector"
@@ -432,9 +438,6 @@ infect() {
     fi
 
     log "Partition starts at sector: $part_start"
-
-    # Calculate end sector for 1GB partition
-    local end_sector=$((part_start + MIN_BOOT_SIZE_MB * 2048 - 1))
 
     # Use sfdisk to resize the partition non-interactively
     log "Recreating partition ${part_num} with ${MIN_BOOT_SIZE_MB}MB size..."
@@ -481,7 +484,7 @@ infect() {
 
   if [[ $NIXOS_CONFIG = http* ]]
   then
-    curl $NIXOS_CONFIG -o /etc/nixos/configuration.nix
+    curl "$NIXOS_CONFIG" -o /etc/nixos/configuration.nix
     unset NIXOS_CONFIG
   fi
 
@@ -491,7 +494,7 @@ infect() {
 
   log "Building NixOS system profile..."
   nix-env --set \
-    -I nixpkgs=$(realpath $HOME/.nix-defexpr/channels/nixos) \
+    -I nixpkgs="$(realpath $HOME/.nix-defexpr/channels/nixos)" \
     -f '<nixpkgs/nixos>' \
     -p /nix/var/nix/profiles/system \
     -A system
@@ -514,10 +517,14 @@ infect() {
   # Stage the Nix coup d'état
   log "Staging NixOS takeover..."
   touch /etc/NIXOS
-  echo etc/nixos                  >> /etc/NIXOS_LUSTRATE
-  echo etc/resolv.conf            >> /etc/NIXOS_LUSTRATE
-  echo root/.nix-defexpr/channels >> /etc/NIXOS_LUSTRATE
-  (cd / && ls etc/ssh/ssh_host_*_key* 2>/dev/null || true) >> /etc/NIXOS_LUSTRATE
+  {
+    echo etc/nixos
+    echo etc/resolv.conf
+    echo root/.nix-defexpr/channels
+  } >> /etc/NIXOS_LUSTRATE
+  if cd / && ls etc/ssh/ssh_host_*_key* 2>/dev/null; then
+    (cd / && ls etc/ssh/ssh_host_*_key*) >> /etc/NIXOS_LUSTRATE
+  fi
 
   rm -rf /boot.bak
   is_EFI && umount "$esp"
