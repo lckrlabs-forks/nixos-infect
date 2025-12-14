@@ -564,7 +564,7 @@ infect() {
 
   if is_EFI; then
     umount --quiet "$esp" || true
-    resize_boot_partition "$esp"
+#    resize_boot_partition "$esp"
     mkdir -p /boot
     mount "$esp" /boot
     find /boot -depth ! -path /boot -exec rm -rf {} +
